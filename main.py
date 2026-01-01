@@ -3,15 +3,14 @@ import os
 import requests
 import json
 import time
-from datetime import datetime
 from flask import Flask, request
 
 app = Flask(__name__)
 
 API_URL = "https://dpzavygtlycvlxlhxxtf.supabase.co/functions/v1/bot-api"
 API_TOKEN = "mito1546742wddagesercret"
-TELEGRAM_BOT_TOKEN = None
-GRUPO_NOTIFICACIONES = None
+TELEGRAM_BOT_TOKEN = "8346062350:AAE9gbvu93iQUs4XZE_5EYvwv8BcB8Msvsw"
+GRUPO_NOTIFICACIONES = "-1003471611022"
 PRODUCTS_CACHE = []
 PENDING = {}
 
@@ -28,16 +27,6 @@ def api_request(endpoint, method="GET", data=None):
     except:
         pass
     return None
-
-def load_config():
-    global TELEGRAM_BOT_TOKEN, GRUPO_NOTIFICACIONES
-    result = api_request("/config")
-    if result and result.get("success"):
-        config = result.get("data", {})
-        TELEGRAM_BOT_TOKEN = config.get("bot_token")
-        GRUPO_NOTIFICACIONES = config.get("grupo_notificaciones")
-        return True
-    return False
 
 def get_products():
     global PRODUCTS_CACHE
@@ -77,10 +66,11 @@ def send_photo(chat_id, photo, caption, reply_markup=None):
     tg("sendPhoto", data)
 
 def get_keyboard():
-    products = PRODUCTS_CACHE if PRODUCTS_CACHE else get_products()
+    if not PRODUCTS_CACHE:
+        get_products()
     keyboard = []
     row = []
-    for p in products:
+    for p in PRODUCTS_CACHE:
         row.append({"text": p.get("nombre", "")})
         if len(row) == 2:
             keyboard.append(row)
@@ -101,12 +91,16 @@ def show_product(chat_id, product):
         send_message(chat_id, caption, buttons)
 
 def find_product(name):
+    if not PRODUCTS_CACHE:
+        get_products()
     for p in PRODUCTS_CACHE:
         if p.get("nombre", "").lower() == name.lower():
             return p
     return None
 
 def process_purchase(chat_id, user_id, username, first_name, prod_id):
+    if not PRODUCTS_CACHE:
+        get_products()
     product = None
     for p in PRODUCTS_CACHE:
         if p.get("id") == prod_id:
@@ -171,10 +165,11 @@ def handle_callback(cb):
 @app.route("/telegram", methods=["POST"])
 def telegram_webhook():
     data = request.get_json()
-    if "message" in data:
-        handle_message(data["message"])
-    elif "callback_query" in data:
-        handle_callback(data["callback_query"])
+    if data:
+        if "message" in data:
+            handle_message(data["message"])
+        elif "callback_query" in data:
+            handle_callback(data["callback_query"])
     return "ok"
 
 @app.route("/hotmart", methods=["POST"])
@@ -194,14 +189,8 @@ def hotmart_webhook():
 def home():
     return "Bot Active"
 
-def setup_webhook(url):
-    tg("setWebhook", {"url": f"{url}/telegram"})
+get_products()
 
 if __name__ == "__main__":
-    load_config()
-    get_products()
-    port = int(os.environ.get("PORT", 5000))
-    railway_url = os.environ.get("RAILWAY_PUBLIC_DOMAIN", "")
-    if railway_url:
-        setup_webhook(f"https://{railway_url}")
+    port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
