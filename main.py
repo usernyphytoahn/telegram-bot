@@ -41,7 +41,10 @@ def load_bots():
                     "id": bot.get("id"),
                     "nombre": bot.get("nombre"),
                     "grupo": bot.get("grupo_notificaciones"),
-                    "token": token
+                    "token": token,
+                    "msg_bienvenida": bot.get("mensaje_bienvenida", "Welcome, {nombre}!\n\nSelect a product below."),
+                    "msg_compra": bot.get("mensaje_compra_confirmada", "🎉 <b>PAYMENT CONFIRMED!</b>\n\nThank you for purchasing <b>{producto}</b>\n\n🔗 <b>Your access:</b>\n{link}\n\n⚠️ Single use only."),
+                    "msg_link": bot.get("mensaje_link_generado", "<b>{producto}</b>\nPrice: ${precio} {moneda}\n\nYour payment link:\n{link}\n\nThis link is unique to you.\nAfter payment, you'll receive your access here.")
                 }
         print(f"Loaded {len(BOTS)} bots")
     return BOTS
@@ -98,7 +101,10 @@ def get_keyboard(bot_token):
     return {"keyboard": keyboard, "resize_keyboard": True}
 
 def show_welcome(token, chat_id, name):
-    send_message(token, chat_id, f"Welcome, {name}!\n\nSelect a product below.", get_keyboard(token))
+    bot = BOTS.get(token, {})
+    msg = bot.get("msg_bienvenida", "Welcome, {nombre}!\n\nSelect a product below.")
+    msg = msg.replace("{nombre}", name)
+    send_message(token, chat_id, msg, get_keyboard(token))
 
 def show_product(token, chat_id, product):
     caption = f"<b>{product.get('nombre')}</b>\nPrice: ${product.get('precio')} {product.get('moneda', 'USD')}"
@@ -136,11 +142,19 @@ def process_purchase(token, chat_id, user_id, username, first_name, prod_id):
     if not hotmart:
         send_message(token, chat_id, "Payment link not available.")
         return
-    PENDING[sck] = {"token": token, "chat_id": chat_id, "user_id": user_id, "username": username, "first_name": first_name, "producto_id": prod_id, "producto_nombre": product.get("nombre")}
-    link = f"{hotmart}?sck={sck}"
-    msg = f"<b>{product.get('nombre')}</b>\nPrice: ${product.get('precio')} {product.get('moneda', 'USD')}\n\nYour payment link:\n{link}\n\nThis link is unique to you.\nAfter payment, you'll receive your access here."
-    send_message(token, chat_id, msg, {"inline_keyboard": [[{"text": "Pay Now", "url": link}]]})
+    PENDING[sck] = {"token": token, "chat_id": chat_id, "user_id": user_id, "username": username, "first_name": first_name, "producto_id": prod_id, "producto_nombre": product.get("nombre"), "precio": product.get("precio"), "moneda": product.get("moneda", "USD")}
+    payment_link = f"{hotmart}?sck={sck}"
+    
     bot = BOTS.get(token, {})
+    msg = bot.get("msg_link", "<b>{producto}</b>\nPrice: ${precio} {moneda}\n\nYour payment link:\n{link}\n\nThis link is unique to you.\nAfter payment, you'll receive your access here.")
+    msg = msg.replace("{producto}", product.get("nombre", ""))
+    msg = msg.replace("{precio}", str(product.get("precio", "")))
+    msg = msg.replace("{moneda}", product.get("moneda", "USD"))
+    msg = msg.replace("{link}", payment_link)
+    msg = msg.replace("{nombre}", first_name)
+    
+    send_message(token, chat_id, msg, {"inline_keyboard": [[{"text": "Pay Now", "url": payment_link}]]})
+    
     grupo = bot.get("grupo")
     if grupo:
         send_message(token, grupo, f"<b>NEW LINK</b>\n\nUser: @{username if username else first_name}\nProduct: {product.get('nombre')}\nSCK: <code>{sck}</code>")
@@ -158,9 +172,18 @@ def deliver_product(sck):
         if grupo:
             send_message(token, grupo, f"<b>NO LINKS</b>\n\nProduct: {c['producto_nombre']}\nClient: {c['first_name']}")
         return
-    send_message(token, c["chat_id"], f"🎉 <b>PAYMENT CONFIRMED!</b>\n\nThank you for purchasing <b>{c['producto_nombre']}</b>\n\n🔗 <b>Your access:</b>\n{link}\n\n⚠️ Single use only.", {"inline_keyboard": [[{"text": "Access Now", "url": link}]]})
-    register_purchase(c["producto_id"], c["user_id"], c.get("username", ""), sck, link)
+    
     bot = BOTS.get(token, {})
+    msg = bot.get("msg_compra", "🎉 <b>PAYMENT CONFIRMED!</b>\n\nThank you for purchasing <b>{producto}</b>\n\n🔗 <b>Your access:</b>\n{link}\n\n⚠️ Single use only.")
+    msg = msg.replace("{producto}", c["producto_nombre"])
+    msg = msg.replace("{link}", link)
+    msg = msg.replace("{nombre}", c["first_name"])
+    msg = msg.replace("{precio}", str(c.get("precio", "")))
+    msg = msg.replace("{moneda}", c.get("moneda", "USD"))
+    
+    send_message(token, c["chat_id"], msg, {"inline_keyboard": [[{"text": "Access Now", "url": link}]]})
+    register_purchase(c["producto_id"], c["user_id"], c.get("username", ""), sck, link)
+    
     grupo = bot.get("grupo")
     if grupo:
         send_message(token, grupo, f"<b>SALE COMPLETED</b>\n\nClient: {c['first_name']}\nProduct: {c['producto_nombre']}")
