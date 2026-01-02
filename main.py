@@ -41,10 +41,12 @@ def load_bots():
                     "id": bot.get("id"),
                     "nombre": bot.get("nombre"),
                     "grupo": bot.get("grupo_notificaciones"),
+                    "grupo_links": bot.get("grupo_links_generados"),
+                    "soporte": bot.get("contacto_soporte", "@Exylus_Supp"),
                     "token": token,
-                    "msg_bienvenida": bot.get("mensaje_bienvenida", "Welcome, {nombre}!\n\nSelect a product below."),
-                    "msg_compra": bot.get("mensaje_compra_confirmada", "🎉 <b>PAYMENT CONFIRMED!</b>\n\nThank you for purchasing <b>{producto}</b>\n\n🔗 <b>Your access:</b>\n{link}\n\n⚠️ Single use only."),
-                    "msg_link": bot.get("mensaje_link_generado", "<b>{producto}</b>\nPrice: ${precio} {moneda}\n\nYour payment link:\n{link}\n\nThis link is unique to you.\nAfter payment, you'll receive your access here.")
+                    "msg_bienvenida": bot.get("mensaje_bienvenida") or "Welcome, {nombre}!\n\nSelect a product below.",
+                    "msg_compra": bot.get("mensaje_compra_confirmada") or "🎉 <b>PAYMENT CONFIRMED!</b>\n\nThank you for purchasing <b>{producto}</b>\n\n🔗 <b>Your access:</b>\n{link}\n\n⚠️ Single use only.",
+                    "msg_link": bot.get("mensaje_link_generado") or "<b>{producto}</b>\nPrice: ${precio} {moneda}\n\nYour payment link:\n{link}\n\nThis link is unique to you.\nAfter payment, you'll receive your access here."
                 }
         print(f"Loaded {len(BOTS)} bots")
     return BOTS
@@ -102,9 +104,15 @@ def get_keyboard(bot_token):
 
 def show_welcome(token, chat_id, name):
     bot = BOTS.get(token, {})
-    msg = bot.get("msg_bienvenida", "Welcome, {nombre}!\n\nSelect a product below.")
+    msg = bot.get("msg_bienvenida") or "Welcome, {nombre}!\n\nSelect a product below."
     msg = msg.replace("{nombre}", name)
     send_message(token, chat_id, msg, get_keyboard(token))
+
+def show_support(token, chat_id):
+    bot = BOTS.get(token, {})
+    soporte = bot.get("soporte", "@Exylus_Supp")
+    msg = f"Need help? Contact {soporte}"
+    send_message(token, chat_id, msg)
 
 def show_product(token, chat_id, product):
     caption = f"<b>{product.get('nombre')}</b>\nPrice: ${product.get('precio')} {product.get('moneda', 'USD')}"
@@ -146,7 +154,7 @@ def process_purchase(token, chat_id, user_id, username, first_name, prod_id):
     payment_link = f"{hotmart}?sck={sck}"
     
     bot = BOTS.get(token, {})
-    msg = bot.get("msg_link", "<b>{producto}</b>\nPrice: ${precio} {moneda}\n\nYour payment link:\n{link}\n\nThis link is unique to you.\nAfter payment, you'll receive your access here.")
+    msg = bot.get("msg_link") or "<b>{producto}</b>\nPrice: ${precio} {moneda}\n\nYour payment link:\n{link}\n\nThis link is unique to you.\nAfter payment, you'll receive your access here."
     msg = msg.replace("{producto}", product.get("nombre", ""))
     msg = msg.replace("{precio}", str(product.get("precio", "")))
     msg = msg.replace("{moneda}", product.get("moneda", "USD"))
@@ -155,9 +163,9 @@ def process_purchase(token, chat_id, user_id, username, first_name, prod_id):
     
     send_message(token, chat_id, msg, {"inline_keyboard": [[{"text": "Pay Now", "url": payment_link}]]})
     
-    grupo = bot.get("grupo")
-    if grupo:
-        send_message(token, grupo, f"<b>NEW LINK</b>\n\nUser: @{username if username else first_name}\nProduct: {product.get('nombre')}\nSCK: <code>{sck}</code>")
+    grupo_links = bot.get("grupo_links")
+    if grupo_links:
+        send_message(token, grupo_links, f"<b>NEW LINK GENERATED</b>\n\nUser: @{username if username else first_name}\nProduct: {product.get('nombre')}\nPrice: ${product.get('precio')}\nSCK: <code>{sck}</code>")
 
 def deliver_product(sck):
     if sck not in PENDING:
@@ -165,16 +173,17 @@ def deliver_product(sck):
     c = PENDING[sck]
     token = c["token"]
     link = get_link(c["producto_id"], c["user_id"], c.get("username", ""))
+    bot = BOTS.get(token, {})
+    soporte = bot.get("soporte", "@Exylus_Supp")
+    
     if not link:
-        send_message(token, c["chat_id"], "Payment received!\n\nWe're preparing your access.")
-        bot = BOTS.get(token, {})
+        send_message(token, c["chat_id"], f"Payment received!\n\nWe're preparing your access.\n\nNeed help? Contact {soporte}")
         grupo = bot.get("grupo")
         if grupo:
-            send_message(token, grupo, f"<b>NO LINKS</b>\n\nProduct: {c['producto_nombre']}\nClient: {c['first_name']}")
+            send_message(token, grupo, f"<b>NO LINKS AVAILABLE</b>\n\nProduct: {c['producto_nombre']}\nClient: {c['first_name']}")
         return
     
-    bot = BOTS.get(token, {})
-    msg = bot.get("msg_compra", "🎉 <b>PAYMENT CONFIRMED!</b>\n\nThank you for purchasing <b>{producto}</b>\n\n🔗 <b>Your access:</b>\n{link}\n\n⚠️ Single use only.")
+    msg = bot.get("msg_compra") or "🎉 <b>PAYMENT CONFIRMED!</b>\n\nThank you for purchasing <b>{producto}</b>\n\n🔗 <b>Your access:</b>\n{link}\n\n⚠️ Single use only."
     msg = msg.replace("{producto}", c["producto_nombre"])
     msg = msg.replace("{link}", link)
     msg = msg.replace("{nombre}", c["first_name"])
@@ -186,7 +195,7 @@ def deliver_product(sck):
     
     grupo = bot.get("grupo")
     if grupo:
-        send_message(token, grupo, f"<b>SALE COMPLETED</b>\n\nClient: {c['first_name']}\nProduct: {c['producto_nombre']}")
+        send_message(token, grupo, f"<b>SALE COMPLETED</b>\n\nClient: {c['first_name']}\nProduct: {c['producto_nombre']}\nSCK: <code>{sck}</code>")
     del PENDING[sck]
 
 def handle_update(token, data):
@@ -200,6 +209,8 @@ def handle_update(token, data):
         if text.lower() == "/start":
             load_products(token)
             show_welcome(token, chat_id, first_name)
+        elif text.lower() == "/support":
+            show_support(token, chat_id)
         else:
             product = find_product(token, text)
             if product:
